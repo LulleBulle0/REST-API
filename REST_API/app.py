@@ -34,7 +34,14 @@ def get_db_connection():
 @app.route('/', methods=['GET'])
 def index():
     return '''<h1>Documentation</h1>
-    <ul><li>GET /users</li></ul>'''
+    <ul>
+    <li>GET /users - returnderar alla användare</li>
+    <li>GET /users/{id} - returnderar en specifik användare eller status 204 om användare saknas</li>
+    <li>POST /users - skapar en ny användare accepterar JSON obejkt på formatet. {"username": "unikt namn", "first_name": "". username är obligatoriskt ock ska vara unikt.}</li>
+    <li>POST /login - för inloggning. Returnerar en JWT som används som bearer token i anrop till routes skyddade med auth. Accepterar JSON objekt på formatet {"username": "", "password": ""}</li>
+    <li>PUT /users/{id} - uppdaterar en användare. Accepterar JSON objekt på formatet {"username": "unikt namn", "first_name": ""}</li>
+    <li>
+    </ul>'''
 
 # @app.route('/users', methods=['GET'])
 # def get_users(): 
@@ -91,7 +98,7 @@ def get_user_age():
         return jsonify(user)
 
 # API-4: Validering av data och felhantering
-@app.route('/users/create', methods=['POST'])
+@app.route('/users', methods=['POST'])
 @jwt_required()
 def create_user():
     data = request.get_json(silent=True)
