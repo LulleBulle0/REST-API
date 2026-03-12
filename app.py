@@ -4,6 +4,7 @@ import mysql.connector
 from mysql.connector import Error
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+from mysql.connector import IntegrityError
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # TODO: Ändra detta till en slumpmässig hemlig nyckel
@@ -31,27 +32,22 @@ def get_db_connection():
         print(f"Fel vid anslutning till MySQL: {e}")
         return None
     
+    #huvudroute som visar dokumentation av API:et, t.ex. vilka routes som finns och vad de gör.
 @app.route('/', methods=['GET'])
 def index():
     return '''<h1>Documentation</h1>
     <ul>
-    <li>GET /users - returnderar alla användare</li>
-    <li>GET /users/{id} - returnderar en specifik användare eller status 204 om användare saknas</li>
-    <li>POST /users - skapar en ny användare accepterar JSON obejkt på formatet. {"username": "unikt namn", "first_name": "". username är obligatoriskt ock ska vara unikt.}</li>
-    <li>POST /login - för inloggning. Returnerar en JWT som används som bearer token i anrop till routes skyddade med auth. Accepterar JSON objekt på formatet {"username": "", "password": ""}</li>
-    <li>PUT /users/{id} - uppdaterar en användare. Accepterar JSON objekt på formatet {"username": "unikt namn", "first_name": ""}</li>
-    <li>
+    <li><p>*GET /users - returnerar alla användare<p></li>
+    <li><p>*GET /users/{id} - returnerar en specifik användare eller status 204 om användare saknas</p></li>
+    <li><p>*GET /users/age?{age} - returnerar alla användare med en viss ålder</p></li>
+    <li><p>POST /users - skapar en ny användare accepterar JSON obejkt på formatet. {"username":"" "name":"", "age": , "password":"", "email":""}. username är obligatoriskt ock ska vara unikt.</p></li>
+    <li><p>*PUT /users/{id} - uppdaterar en användare. Accepterar JSON objekt på formatet, OBS! Username och email behöver vara unikt {"username":"" "name":"", "age":, "email":"", "password":""}</p></li>
+    <li><p>POST /login - för inloggning. Returnerar en JWT som används som bearer token i anrop till routes skyddade med auth. Accepterar JSON objekt på formatet {"username": "", "password": ""}</p></li>
+    <li><p>*GET /protected - en route som är skyddad med JWT auth   . Returnerar information om den inloggade användaren</p></li>
+    <p> * = kräver JWT token i Authorization headern</p>
     </ul>'''
 
-# @app.route('/users', methods=['GET'])
-# def get_users(): 
-#     users = [
-#         {'id': 1, 'name': 'Alice'},
-#         {'id': 2, 'name': 'Bob'},
-#         {'id': 3, 'name': 'Charlie'}
-#     ]
-#     return jsonify(users)
-
+#visar alla users, kräver auth, returnerar 401 om ingen eller ogiltig token skickas med i headern
 @app.route('/users', methods=['GET'])
 @jwt_required()
 def get_users(): 
@@ -63,7 +59,9 @@ def get_users():
 
     return jsonify(users)
 
+#visar en user med id, kräver auth, returnerar 401 om ingen eller ogiltig token skickas med i headern, returnerar 404 om user saknas
 @app.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required()
 def get_user(user_id):
     """Get all users"""
     connection = get_db_connection()
@@ -80,8 +78,8 @@ def get_user(user_id):
     else:
         return jsonify(user)
 
-
-@app.route('/users/age?<int:user_age>', methods=['GET'])
+#visar alla users med en viss ålder, kräver auth, returnerar 401 om ingen eller ogiltig token skickas med i headern, returnerar 404 om user saknas  
+@app.route('/users/age', methods=['GET'])
 @jwt_required()
 def get_user_age():
     user_age = request.args.get('age')
@@ -97,15 +95,14 @@ def get_user_age():
     else:
         return jsonify(user)
 
+#skapar ny user, krväer auth, returnerar 401 om ingen eller ogiltig token skickas med i headern, returnerar 422 om data som skickas i body inte är valid, returnerar 409 om username eller email redan finns i databasen
 # API-4: Validering av data och felhantering
 @app.route('/users', methods=['POST'])
-@jwt_required()
 def create_user():
     data = request.get_json(silent=True)
 
     if is_valid_user_data(data):
-        # Logik för databas här...
-        data = request.get_json()  # Hämta data från requesten.
+
         username = data.get('username')
         name = data.get('name')
         age = data.get('age')
@@ -114,30 +111,39 @@ def create_user():
 
         connection = get_db_connection()
 
-        if not connection:  # ← Kontrollera om anslutningen misslyckades
+        if not connection:
             return jsonify({'error': 'Database connection failed'}), 500
 
         cursor = connection.cursor()
+
         sql = "INSERT INTO users (username, name, age, password, email) VALUES (%s, %s, %s, %s, %s)"
-        cursor.execute(sql, (username, name, age, generate_password_hash(password), email))
-            
-        connection.commit() # commit() gör klart skrivningen till databasen
-        user_id = cursor.lastrowid # cursor.lastrowid innehåller id på raden som skapades i DB
+
+        try:
+            cursor.execute(sql, (username, name, age, generate_password_hash(password), email))
+            connection.commit()
+
+        except IntegrityError as err:
+            if err.errno == 1062:
+                return jsonify({"error": "Username or email already in use"}), 409
+            else:
+                return jsonify({"error": "Database error"}), 500
+
+        user_id = cursor.lastrowid
 
         user = {
-        'username': username,
-        'name': name,
-        'age': age,
-        'password': password,
-        'id': user_id,
-        'email': email
+            'username': username,
+            'name': name,
+            'age': age,
+            'id': user_id,
+            'email': email
         }
 
         return jsonify({"message": "User created", "user": user}), 201
+
     else:
-        # Returnera ett JSON-objekt med felmeddelandet och statuskod 422
         return jsonify({"error": "Invalid user data"}), 422
 
+# En hjälpfunktion för att validera användardata
 def is_valid_user_data(data):
     if "username" in data and "age" in data and "name" in data:
         if not isinstance(data["username"], str):
@@ -151,7 +157,7 @@ def is_valid_user_data(data):
         return True
     return False
 
-
+#update user by id, kräver auth.
 @app.route('/users/<int:user_id>', methods=['PUT'])
 @jwt_required()
 def update_user(user_id):
@@ -184,7 +190,7 @@ def update_user(user_id):
 
     return jsonify({"message": "Användare uppdaterad", "id": user_id}), 200
 
-
+#ger en bearer token som används för att autentisera routes som kräver auth, t.ex. GET /users
 @app.route('/login', methods=['POST'])
 def login():
     """User login"""
@@ -213,6 +219,7 @@ def login():
         'user': user
     })
 
+# En route som är skyddad med JWT auth. Returnerar information om den inloggade användaren
 @app.route('/protected', methods=['GET'])
 @jwt_required()
 def protected():
