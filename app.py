@@ -23,6 +23,7 @@ DB_CONFIG = {
     'database': 'api'  # TODO: Ändra detta till ditt databasnamn
 }
 
+# skapar och returnerar en databasanslutning, (victor förstod inte även fast det stod precis under)
 def get_db_connection():
     """Skapa och returnera en databasanslutning"""
     try:
@@ -213,11 +214,6 @@ def login():
     access_token = create_access_token(identity=user_name)
     # Skicka tillbaka JWT
     return jsonify(access_token=access_token), 200
-
-    return jsonify({
-        'message': 'Login successful',
-        'user': user
-    })
 
 # En route som är skyddad med JWT auth. Returnerar information om den inloggade användaren
 @app.route('/protected', methods=['GET'])
